@@ -1,0 +1,60 @@
+name: Base PR Open
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - main
+
+concurrency:
+  group: main-pr-open-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    uses: ./.github/workflows/.terraform.yml
+    name: (Base) Pr Plan
+    with:
+      tf_command: "plan"
+    secrets:
+      aws_access_key:     ${{ secrets.AWS_ACCESS_KEY_MAIN }}
+      aws_secret_key:     ${{ secrets.AWS_SECRET_KEY_MAIN }}
+      aws_region:         ${{ secrets.AWS_REGION }}
+
+      aws_backend_bucket: ${{ secrets.AWS_BACKEND_BUCKET }}
+      aws_backend_region: ${{ secrets.AWS_BACKEND_REGION }}
+      aws_backend_key:    ${{ secrets.AWS_BACKEND_KEY }}
+
+      acm_crt:            ${{ secrets.ACM_CRT }}
+      bucket_name:        ${{ secrets.SITE_BUCKET_NAME }}
+
+  build:
+    runs-on: ubuntu-24.04
+    name: (Base) Pr Build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site
+        uses: Mad-Pixels/github-workflows/.github/actions/taskfile-runner@main
+        with:
+          command: docs/build
+
+  pr-check:
+    name: (Base) PR Check
+    needs: [build, plan]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All PR checks completed successfully!"
+          echo "Ready to merge! 🚀"

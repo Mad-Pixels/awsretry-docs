@@ -1,0 +1,140 @@
+version: '3'
+
+vars:
+  git_root:
+    sh: git rev-parse --show-toplevel
+
+  node_version: "20"
+  terraform: 1.9.5
+
+tasks:
+  default:
+    desc: Default task.
+    cmds:
+      - echo "Please enter a task or use '-l' or '--list-all' to list all available tasks"
+    silent: true
+
+  # =================================================
+  # ---------------------INTERNAL-------------------#
+  # =================================================
+
+  _node/check:
+    desc: Check if Node.js is installed
+    cmds:
+      - node --version
+      - npm --version
+    silent: true
+    internal: true
+
+  _node/install/deps:
+    desc: Install all dependencies
+    dir: "{{.git_root}}"
+    deps:
+      - _node/check
+    cmds:
+      - npm install
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules/**/*
+    silent: true
+    internal: true
+
+  _node/install/vitepress:
+    desc: Install vitepress if not present
+    dir: "{{.git_root}}"
+    deps:
+      - _node/install/deps
+    cmds:
+      - |
+        if ! npm list vitepress &>/dev/null; then
+          echo "Installing VitePress..."
+          npm add -D vitepress
+        else
+          echo "VitePress already installed"
+        fi
+    silent: true
+    internal: true
+
+  _terraform/install:
+    desc: Install 'terraform'.
+    cmds:
+      - curl -sL https://releases.hashicorp.com/terraform/{{.terraform}}/terraform_{{.terraform}}_{{OS}}_{{ARCH}}.zip -o /tmp/terraform.zip
+      - sudo unzip -o /tmp/terraform.zip -d /usr/local/bin/
+      - sudo chmod a+x /usr/local/bin/terraform
+      - terraform version
+    sources:
+      - /usr/local/bin/terraform
+    silent: true
+    internal: true
+
+  # =================================================
+  # ----------------------PUBLIC--------------------#
+  # =================================================
+  
+  docs/init:
+    desc: Initialize VitePress docs structure
+    dir: "{{.git_root}}"
+    deps:
+      - _node/install/vitepress
+    cmds:
+      - |
+        if [ ! -f "docs/package.json" ]; then
+          mkdir -p docs
+          cd docs
+          npm init -y
+          npm add -D vitepress
+          npx vitepress init
+        fi
+    silent: true
+
+  docs/run:
+    desc: Run vitepress dev server
+    dir: "{{.git_root}}"
+    deps:
+      - _node/install/vitepress
+    cmds:
+      - npm run dev
+    silent: true
+
+  docs/build:
+    desc: Build vitepress for production
+    dir: "{{.git_root}}"
+    deps:
+      - _node/install/vitepress
+    cmds:
+      - npm run build
+    sources:
+      - "**/*.md"
+      - "**/*.vue" 
+      - ".vitepress/**/*"
+    generates:
+      - ".vitepress/dist/**/*"
+    silent: true
+
+  docs/preview:
+    desc: Preview built docs locally
+    dir: "{{.git_root}}"
+    deps:
+      - docs/build
+    cmds:
+      - npm run preview
+    silent: true
+
+  terraform/fmt/fix:
+    desc: Run 'terraform fix fmt'.
+    dir: "{{.git_root}}/terraform"
+    deps:
+      - _terraform/install
+    cmd: terraform fmt -recursive --diff --write=true
+    silent: true
+
+  clean:
+    desc: Clean build artifacts
+    dir: "{{.git_root}}"
+    cmds:
+      - rm -rf docs/.vitepress/dist
+      - rm -rf node_modules
+      - rm -rf docs/node_modules
+    silent: true

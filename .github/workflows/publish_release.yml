@@ -1,0 +1,210 @@
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-tag-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  check-main-branch:
+    name: Verify tag from main branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag is from main branch
+        run: |
+          TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref_name }})
+          if ! git merge-base --is-ancestor $TAG_COMMIT origin/main; then
+            exit 1
+          fi
+
+  apply:
+    needs: check-main-branch
+    uses: ./.github/workflows/.terraform.yml
+    name: (Release) Apply
+    with:
+      tf_command: "apply"
+    secrets:
+      aws_access_key:     ${{ secrets.AWS_ACCESS_KEY_MAIN }}
+      aws_secret_key:     ${{ secrets.AWS_SECRET_KEY_MAIN }}
+      aws_region:         ${{ secrets.AWS_REGION }}
+
+      aws_backend_bucket: ${{ secrets.AWS_BACKEND_BUCKET }}
+      aws_backend_region: ${{ secrets.AWS_BACKEND_REGION }}
+      aws_backend_key:    ${{ secrets.AWS_BACKEND_KEY }}
+
+      acm_crt:            ${{ secrets.ACM_CRT }}
+      bucket_name:        ${{ secrets.SITE_BUCKET_NAME }}
+
+  build:
+    needs: check-main-branch
+    runs-on: ubuntu-24.04
+    name: (Release) Build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site
+        uses: Mad-Pixels/github-workflows/.github/actions/taskfile-runner@main
+        with:
+          command: docs/build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-build
+          path: docs/.vitepress/dist/
+          retention-days: 7
+
+  deploy:
+    needs: [build, apply]
+    runs-on: ubuntu-24.04
+    name: (Release) Deploy
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-build
+          path: build-output
+
+      - name: Upload to S3
+        uses: Mad-Pixels/github-workflows/.github/actions/aws-s3-sync@main
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_MAIN }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_KEY_MAIN }}
+          aws_region:     ${{ secrets.AWS_REGION }}
+
+          bucket_name:    "awsretry-docs-${{ secrets.SITE_BUCKET_NAME }}"
+          source_dir:     "build-output"
+
+      - name: Invalidate CloudFront cache
+        uses: Mad-Pixels/github-workflows/.github/actions/aws-cloudfront-invalidation@main
+        with:
+          aws_access_key:   ${{ secrets.AWS_ACCESS_KEY_MAIN }}
+          aws_secret_key:   ${{ secrets.AWS_SECRET_KEY_MAIN }}
+          aws_region:       ${{ secrets.AWS_REGION }}
+          distribution_id:  ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+          
+          paths:            "/*"
+          caller_reference: "release-${{ github.ref_name }}"
+  
+  generate-changelog:
+    name: (Release) Generate Changelog
+    needs: check-main-branch
+    runs-on: ubuntu-24.04
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+    
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "^${{ github.ref_name }}$" | head -n1)
+          if [ -z "$PREVIOUS_TAG" ]; then
+            PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi 
+
+          CHANGELOG=""
+
+          FEATURES=$(git log --pretty=format:"- %s" --grep="^\[feature\]" $PREVIOUS_TAG..${{ github.ref_name }} | head -20)
+          if [ -n "$FEATURES" ]; then
+            CHANGELOG="$CHANGELOG### ✨ New Features\n$FEATURES\n\n"
+          fi 
+
+          FIXES=$(git log --pretty=format:"- %s" --grep="^\[fix\]" $PREVIOUS_TAG..${{ github.ref_name }} | head -20)
+          if [ -n "$FIXES" ]; then
+            CHANGELOG="$CHANGELOG### 🐛 Bug Fixes\n$FIXES\n\n"
+          fi 
+
+          REFACTORS=$(git log --pretty=format:"- %s" --grep="^\[refactor\]" $PREVIOUS_TAG..${{ github.ref_name }} | head -10)
+          if [ -n "$REFACTORS" ]; then
+            CHANGELOG="$CHANGELOG### 🔧 Refactoring\n$REFACTORS\n\n"
+          fi
+
+          INFRA=$(git log --pretty=format:"- %s" --grep="^\[infra\]" $PREVIOUS_TAG..${{ github.ref_name }} | head -10)
+          if [ -n "$INFRA" ]; then
+            CHANGELOG="$CHANGELOG### 🏗 Infrastructure\n$INFRA\n\n"
+          fi
+
+          DOCS=$(git log --pretty=format:"- %s" --grep="^\[docs\]" $PREVIOUS_TAG..${{ github.ref_name }} | head -10)
+          if [ -n "$DOCS" ]; then
+            CHANGELOG="$CHANGELOG### 📚 Documentation\n$DOCS\n\n"
+          fi
+
+          CHORE=$(git log --pretty=format:"- %s" --grep="^\[chore\]" $PREVIOUS_TAG..${{ github.ref_name }} | head -10)
+          if [ -n "$CHORE" ]; then
+            CHANGELOG="$CHANGELOG### 🔩 Chores\n$CHORE\n\n"
+          fi
+
+          OTHER=$(git log --pretty=format:"- %s" --invert-grep \
+            --grep="^\[feature\]" --grep="^\[fix\]" --grep="^\[refactor\]" \
+            --grep="^\[docs\]" --grep="^\[infra\]" --grep="^\[chore\]" \
+            $PREVIOUS_TAG..${{ github.ref_name }} | head -10)
+          if [ -n "$OTHER" ]; then
+            CHANGELOG="$CHANGELOG### 📝 Other Changes\n$OTHER\n\n"
+          fi
+
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="### 📋 Changes\n- Release ${{ github.ref_name }}\n\n"
+          fi
+
+          COMMIT_COUNT=$(git rev-list --count $PREVIOUS_TAG..${{ github.ref_name }})
+          CHANGELOG="$CHANGELOG### 📊 Stats\n- **$COMMIT_COUNT** commits since $PREVIOUS_TAG\n"
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  publish-release:
+    name: Publish Release
+    needs: [build, apply, deploy, generate-changelog]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "AWS-RetryDocs ${{ github.ref_name }}"
+          body: |
+            Go library for AWS API retries with exponential backoff
+            ## 🔗 Links
+            - [📖 AWS-Retry docs](https://awsretry.madpixels.io)
+            - [🛠️ AWS-Retry source](https://github.com/Mad-Pixels/awsretry)
+            - [🚀 AWS-Retry releases](https://github.com/Mad-Pixels/awsretry/releases)
+            - [🐞 Report Doc Issues](https://github.com/Mad-Pixels/awsretry/issues)
+            - [🐛 Report Cli Issues](https://github.com/Mad-Pixels/awsretry/issues)
+            - [⭐ Give us a star!](https://github.com/Mad-Pixels/awsretry)
+
+            ---
+
+            ## Changelog 
+            ${{ needs.generate-changelog.outputs.changelog }}
+
+            ---
+          draft: false
+          prerelease: false

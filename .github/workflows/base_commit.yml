@@ -1,0 +1,26 @@
+name: Base commit 
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+concurrency:
+  group: base-commit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: (Base) Commit Checks
+    uses: ./.github/workflows/.checks.yml
+    secrets:
+      gitleaks: ${{ secrets.GITLEAKS_LICENSE }}
+  
+  commit-check:
+    name: (Base) Commit Check
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All Commit checks completed successfully!"
