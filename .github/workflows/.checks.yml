@@ -1,0 +1,32 @@
+name: Checks
+
+on:
+  workflow_call:
+    secrets:
+      gitleaks: 
+        required: true
+
+jobs:
+  terraform:
+    name: Terraform 
+    runs-on: ubuntu-latest
+    steps:
+      - name: TfFmt
+        uses: "Mad-Pixels/github-workflows/.github/actions/terraform-fmt@main"
+        with:
+          tf_dir: "./terraform"
+          tf_version: "1.6.1"
+
+  leaks:
+    name: GitLeaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.gitleaks }}
+          GITLEAKS_CONFIG: ./.gitleaks.toml
