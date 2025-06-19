@@ -1,5 +1,5 @@
 resource "local_file" "cloudfront_function" {
-  content = templatefile("${path.module}/.tmpl/go-dyno-docs.js", {
+  content = templatefile("${path.module}/.tmpl/aws-retry-docs.js", {
     latest_version = local.versions_config.latest
     locale_mapping = jsonencode(local.locale_mapping)
   })
