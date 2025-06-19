@@ -1,5 +1,5 @@
 locals {
-  project     = "awsretry"
+  project     = "awsretry-docs"
   domain      = "awsretry.madpixels.io"
   description = "AWS-Retry docs portal"
   provisioner = "main"
