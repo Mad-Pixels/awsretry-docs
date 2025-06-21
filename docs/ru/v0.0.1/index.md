@@ -8,7 +8,7 @@ hero:
      text: Использование 
      link: ./guide/usage
    - theme: brand
-     text: Справочник
+     text: Референс
      link: ./reference/lib
    - theme: alt
      text: Релизы

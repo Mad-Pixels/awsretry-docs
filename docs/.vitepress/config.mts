@@ -90,8 +90,6 @@ export default defineConfig({
             {
               text: 'Начало работы',
               items: [
-                { text: 'Установка', link: `/ru/${versionsConfig.latest}/guide/installation` },
-                { text: 'Быстрый старт', link: `/ru/${versionsConfig.latest}/guide/quickstart` },
                 { text: 'Использование', link: `/ru/${versionsConfig.latest}/guide/usage` },
               ]
             },
@@ -99,8 +97,7 @@ export default defineConfig({
               text: 'Референс', 
               collapsed: true, 
               items: [
-                { text: 'CLI', link: `/ru/${versionsConfig.latest}/reference/cli` }, 
-                { text: 'API', link: `/ru/${versionsConfig.latest}/reference/api` } 
+                { text: 'Lib', link: `/ru/${versionsConfig.latest}/reference/lib` } 
               ]
             }
           ]
