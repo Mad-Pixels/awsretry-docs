@@ -34,7 +34,7 @@ export default defineConfig({
           href: `/en/${versionsConfig.latest}/`
         },
         nav: [
-          { text: 'Reference', link: `/en/${versionsConfig.latest}/reference/usage` },
+          { text: 'Reference', link: `/en/${versionsConfig.latest}/reference/lib` },
           {
             text: "Releases",
             items: createVersionDropdown('en')
@@ -79,7 +79,7 @@ export default defineConfig({
           href: `/ru/${versionsConfig.latest}/`
         },
         nav: [
-          { text: 'Референс', link: `/ru/${versionsConfig.latest}/reference/cli` },
+          { text: 'Референс', link: `/ru/${versionsConfig.latest}/reference/lib` },
           {
             text: "Релизы",
             items: createVersionDropdown('ru')
